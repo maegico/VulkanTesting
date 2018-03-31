@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <vector>
 
+#define THROW(x) { throw std::runtime_error(x); }
+
 class TriApp
 {
 public:
@@ -25,6 +27,8 @@ public:
 private:
 	GLFWwindow* window;
 	VkInstance instance;
+	//physical device will be auto destroyed when instance is destroyed
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDebugReportCallbackEXT callback;
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
@@ -35,6 +39,16 @@ private:
 #else
 	const bool enableValidationLayers = true;
 #endif
+
+	struct QueueFamilyIndices
+	{
+		int graphicsFamily = -1;
+
+		bool isComplete()
+		{
+			return graphicsFamily >= 0;
+		}
+	};
 
 #pragma region Primary functions
 
@@ -54,6 +68,7 @@ private:
 	{
 		createInstance();
 		setupDebugCallback();
+		pickPhysicalDevice();
 	}
 
 	void mainLoop()
@@ -80,7 +95,88 @@ private:
 
 #pragma endregion
 
-#pragma region Auxiliary Functions
+#pragma region Physical Device Functions
+
+	//pick a graphics card to use
+		//we can use more than one, but we won't
+	void pickPhysicalDevice()
+	{
+		uint32_t deviceCount = 0;
+		vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+		if (deviceCount == 0)
+		{
+			THROW("failed to find GPUs with Vulkan support!")
+		}
+
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+		for (const auto& device : devices)
+		{
+			if (isDeviceSuitable(device))
+			{
+				physicalDevice = device;
+				break;
+			}
+		}
+
+		if (physicalDevice == VK_NULL_HANDLE)
+		{
+			THROW("failed to find a suitable GPU!");
+		}
+	}
+
+	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
+	{
+		QueueFamilyIndices indices;
+
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		int i = 0;
+		for (const auto& queueFamily : queueFamilies)
+		{
+			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			{
+				indices.graphicsFamily = i;
+			}
+
+			if (indices.isComplete())
+			{
+				break;
+			}
+
+			i++;
+		}
+
+		return indices;
+	}
+
+	bool isDeviceSuitable(VkPhysicalDevice device)
+	{
+		//properties are things like name, type, and supported vulkan version
+		VkPhysicalDeviceProperties deviceProperties;
+		//features are things texture compression, 64 bit floats, and multi viewport rendering(VR)
+		VkPhysicalDeviceFeatures deviceFeatures;
+		QueueFamilyIndices indices = findQueueFamilies(device);
+		vkGetPhysicalDeviceProperties(device, &deviceProperties);
+		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+		//after these you can determine which graphics card to use
+		//for now I will force it to use a dedicated GPU
+			//any GPU is fine, but I want to use my dedicate GPU
+
+		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+			&& indices.isComplete();
+	}
+
+#pragma endregion
+
+#pragma region Validation/Extension Functions
 
 	std::vector<const char*> getRequiredExtensions()
 	{
@@ -164,6 +260,56 @@ private:
 		return true;
 	}
 
+#pragma endregion
+
+	void createInstance()
+	{
+		if (enableValidationLayers && !checkValidationLayerSupport())
+		{
+			THROW("not all validation layers requested are supported!")
+		}
+
+		auto extensions = getRequiredExtensions();
+
+		//check required extensions against available extensions
+		if (!checkExtensionSupport(extensions))
+		{
+			THROW("not all required extensions supported!");
+		}
+
+		VkApplicationInfo appInfo = {};
+		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		appInfo.pApplicationName = "Hello Triangle";
+		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+		appInfo.pEngineName = "No Engine";
+		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+		appInfo.apiVersion = VK_API_VERSION_1_1;
+
+		VkInstanceCreateInfo createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		createInfo.pApplicationInfo = &appInfo;
+		createInfo.flags = 0;
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+		createInfo.ppEnabledExtensionNames = extensions.data();
+
+		if (enableValidationLayers)
+		{
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+		else
+		{
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
+		{
+			THROW("failed to create instance!");
+		}
+	}
+
+#pragma region Debug Callback Functions
+
 	//debugCallback called four times on the same object
 		//not sure why
 
@@ -191,52 +337,6 @@ private:
 		return VK_FALSE;
 	}
 
-	void createInstance()
-	{
-		if (enableValidationLayers && !checkValidationLayerSupport())
-		{
-			throw std::runtime_error("not all validation layers requested are supported!");
-		}
-
-		auto extensions = getRequiredExtensions();
-
-		//check required extensions against available extensions
-		if (!checkExtensionSupport(extensions))
-		{
-			throw std::runtime_error("not all required extensions supported!");
-		}
-
-		VkApplicationInfo appInfo = {};
-		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.pApplicationName = "Hello Triangle";
-		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.pEngineName = "No Engine";
-		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_1;
-
-		VkInstanceCreateInfo createInfo = {};
-		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-		createInfo.pApplicationInfo = &appInfo;
-		createInfo.flags = 0;
-		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-		createInfo.ppEnabledExtensionNames = extensions.data();
-		
-		if (enableValidationLayers)
-		{
-			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-			createInfo.ppEnabledLayerNames = validationLayers.data();
-		}
-		else
-		{
-			createInfo.enabledLayerCount = 0;
-		}
-
-		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
-		{
-			throw std::runtime_error("failed to create instance!");
-		}
-	}
-
 	void setupDebugCallback()
 	{
 		if (!enableValidationLayers) return;
@@ -256,7 +356,7 @@ private:
 		//So, we manually load it with this function
 		if (CreateDebugReportCallbackEXT(instance, &createInfo, nullptr, &callback) != VK_SUCCESS)
 		{
-			throw std::runtime_error("failed to set up debug callback!");
+			THROW("failed to set up debug callback!");
 		}
 	}
 
