@@ -25,6 +25,15 @@ public:
 private:
 	GLFWwindow* window;
 	VkInstance instance;
+	const std::vector<const char*> validationLayers = {
+		"VK_LAYER_LUNARG_standard_validation"
+	};
+
+#ifdef NDEBUG
+	const bool enableValidationLayers = false;
+#else
+	const bool enableValidationLayers = true;
+#endif
 
 	void initWindow()
 	{
@@ -38,43 +47,8 @@ private:
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
 
-	void createInstance()
-	{
-		VkApplicationInfo appInfo = {};
-		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.pApplicationName = "Hello Triangle";
-		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.pEngineName = "No Engine";
-		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_1;
-
-		VkInstanceCreateInfo createInfo = {};
-		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-		createInfo.pApplicationInfo = &appInfo;
-		createInfo.flags = 0;
-
-		uint32_t glfwExtensionCount = 0;
-		const char** glfwExtensions;
-		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-		//check required extensions against available extensions
-		if (!checkEXT(glfwExtensions, glfwExtensionCount))
-		{
-			throw std::runtime_error("not all required extensions supported!");
-		}
-
-		createInfo.enabledExtensionCount = glfwExtensionCount;
-		createInfo.ppEnabledExtensionNames = glfwExtensions;
-		createInfo.enabledLayerCount = 0;
-		
-		//fixed, my vulkan drivers were too old
-		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
-		{
-			throw std::runtime_error("failed to create instance!");
-		}
-	}
-
-	bool checkEXT(const char** reqEXT, uint32_t reqCount)
+	//Go through all available extensions and compare them against the required extensions
+	bool checkExtensionSupport(const char** reqEXT, uint32_t reqCount)
 	{
 		uint32_t extCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
@@ -104,10 +78,86 @@ private:
 			}
 		}
 
-		if(count == reqCount)
+		if (count == reqCount)
 			return true;
 
 		return false;
+	}
+
+	bool checkValidationLayerSupport()
+	{
+		uint32_t layerCount;
+		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+		std::vector<VkLayerProperties> availableLayers(layerCount);
+		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+		for (const char* layerName : validationLayers)
+		{
+			bool layerFound = false;
+
+			for (const auto& layerProperties : availableLayers)
+			{
+				if (strcmp(layerName, layerProperties.layerName) == 0)
+				{
+					layerFound = true;
+					break;
+				}
+			}
+
+			if (!layerFound)
+				return false;
+		}
+
+		return true;
+	}
+
+	void createInstance()
+	{
+		if (enableValidationLayers && !checkValidationLayerSupport())
+		{
+			throw std::runtime_error("not all validation layers requested are supported!");
+		}
+
+		uint32_t glfwExtensionCount = 0;
+		const char** glfwExtensions;
+		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+		//check required extensions against available extensions
+		if (!checkExtensionSupport(glfwExtensions, glfwExtensionCount))
+		{
+			throw std::runtime_error("not all required extensions supported!");
+		}
+
+		VkApplicationInfo appInfo = {};
+		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		appInfo.pApplicationName = "Hello Triangle";
+		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+		appInfo.pEngineName = "No Engine";
+		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+		appInfo.apiVersion = VK_API_VERSION_1_1;
+
+		VkInstanceCreateInfo createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		createInfo.pApplicationInfo = &appInfo;
+		createInfo.flags = 0;
+		createInfo.enabledExtensionCount = glfwExtensionCount;
+		createInfo.ppEnabledExtensionNames = glfwExtensions;
+		
+		if (enableValidationLayers)
+		{
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+		else
+		{
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create instance!");
+		}
 	}
 
 	void initVulkan()
