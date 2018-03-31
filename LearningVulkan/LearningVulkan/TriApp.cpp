@@ -25,6 +25,7 @@ public:
 private:
 	GLFWwindow* window;
 	VkInstance instance;
+	VkDebugReportCallbackEXT callback;
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
 	};
@@ -34,6 +35,8 @@ private:
 #else
 	const bool enableValidationLayers = true;
 #endif
+
+#pragma region Primary functions
 
 	void initWindow()
 	{
@@ -46,6 +49,38 @@ private:
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
+
+	void initVulkan()
+	{
+		createInstance();
+		setupDebugCallback();
+	}
+
+	void mainLoop()
+	{
+		while (!glfwWindowShouldClose(window))
+		{
+			glfwPollEvents();
+		}
+	}
+
+	void cleanup()
+	{
+		if (enableValidationLayers)
+		{
+			DestroyDebugReportCallbackEXT(instance, callback, nullptr);
+		}
+
+		vkDestroyInstance(instance, nullptr);
+
+		glfwDestroyWindow(window);
+
+		glfwTerminate();
+	}
+
+#pragma endregion
+
+#pragma region Auxiliary Functions
 
 	std::vector<const char*> getRequiredExtensions()
 	{
@@ -129,6 +164,33 @@ private:
 		return true;
 	}
 
+	//debugCallback called four times on the same object
+		//not sure why
+
+	//the debug report flags can be any combo of:
+		//info
+		//warning
+		//performance warning
+		//error
+		//debug
+	//user data is to pass your own data to the callback
+	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+		VkDebugReportFlagsEXT flags,
+		VkDebugReportObjectTypeEXT objType,
+		uint64_t obj,
+		size_t location,
+		int32_t code,
+		const char* layerPrefix,
+		const char* msg,
+		void* userData)
+	{
+		//just prints the msg to the standard error buffer
+		std::cerr << "validation layer: " << msg << std::endl;
+
+		//returning true is normally only used to test validation layers
+		return VK_FALSE;
+	}
+
 	void createInstance()
 	{
 		if (enableValidationLayers && !checkValidationLayerSupport())
@@ -175,32 +237,63 @@ private:
 		}
 	}
 
-	void initVulkan()
+	void setupDebugCallback()
 	{
-		createInstance();
-	}
+		if (!enableValidationLayers) return;
 
-	void mainLoop()
-	{
-		while (!glfwWindowShouldClose(window))
+		VkDebugReportCallbackCreateInfoEXT createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+		//flags are filtering which types of messages to see
+		createInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
+		createInfo.pfnCallback = debugCallback;
+		
+		//if we wanted to, we could pass a pointer to pUserData field
+		//this is passed to the callback function's userData parameter
+			//we can use this to pass a pointer to the TriApp class
+
+		//normally you would pass this createInfo to vkCreateDebugReportCallbackEXT function,
+			//but this is an extension function and is not automatically loaded
+		//So, we manually load it with this function
+		if (CreateDebugReportCallbackEXT(instance, &createInfo, nullptr, &callback) != VK_SUCCESS)
 		{
-			glfwPollEvents();
+			throw std::runtime_error("failed to set up debug callback!");
 		}
 	}
 
-	void cleanup()
+	VkResult CreateDebugReportCallbackEXT(VkInstance instance,
+		const VkDebugReportCallbackCreateInfoEXT* pCreateInfo,
+		const VkAllocationCallbacks* pAllocator,
+		VkDebugReportCallbackEXT* pCallback)
 	{
-		vkDestroyInstance(instance, nullptr);
-
-		glfwDestroyWindow(window);
-
-		glfwTerminate();
+		auto func = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT");
+		if (func != nullptr)
+		{
+			return func(instance, pCreateInfo, pAllocator, pCallback);
+		}
+		else
+		{
+			return VK_ERROR_EXTENSION_NOT_PRESENT;
+		}
 	}
+
+	void DestroyDebugReportCallbackEXT(VkInstance instance,
+		VkDebugReportCallbackEXT callback,
+		const VkAllocationCallbacks* pAllocator)
+	{
+		auto func = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT");
+		if (func != nullptr)
+		{
+			func(instance, callback, pAllocator);
+		}
+	}
+
+#pragma endregion
 };
 
 int main()
 {
 	TriApp app;
+	bool result = EXIT_SUCCESS;
 
 	try
 	{
@@ -209,8 +302,9 @@ int main()
 	catch (const std::runtime_error& e)
 	{
 		std::cerr << e.what() << std::endl;
-		return EXIT_FAILURE;
+		result = EXIT_FAILURE;
 	}
 
-	return EXIT_SUCCESS;
+	getchar();
+	return result;
 }
