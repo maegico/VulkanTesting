@@ -47,8 +47,24 @@ private:
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
 
+	std::vector<const char*> getRequiredExtensions()
+	{
+		uint32_t glfwExtensionCount = 0;
+		const char** glfwExtensions;
+		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+		std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+		if (enableValidationLayers)
+		{
+			extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+		}
+
+		return extensions;
+	}
+
 	//Go through all available extensions and compare them against the required extensions
-	bool checkExtensionSupport(const char** reqEXT, uint32_t reqCount)
+	bool checkExtensionSupport(std::vector<const char*> requiredExtensions)
 	{
 		uint32_t extCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
@@ -63,22 +79,23 @@ private:
 		}
 
 		std::cout << "required extensions: " << std::endl;
-		for (uint32_t i = 0; i < reqCount; i++)
+		for(const auto& requiredExtension: requiredExtensions)
 		{
-			std::cout << "\t" << reqEXT[i] << std::endl;
+			std::cout << "\t" << requiredExtension << std::endl;
 		}
 
+		//compare the required extensions against available extensions
 		uint32_t count = 0;
-		for (uint32_t i = 0; i < reqCount; i++)
+		for (const auto& requiredExtension : requiredExtensions)
 		{
-			for (uint32_t j = 0; j < extensions.size(); j++)
+			for (const auto& extension : extensions)
 			{
-				if (strcmp(reqEXT[i], extensions[j].extensionName) == 0)
+				if (strcmp(requiredExtension, extension.extensionName) == 0)
 					count++;
 			}
 		}
 
-		if (count == reqCount)
+		if (count == requiredExtensions.size())
 			return true;
 
 		return false;
@@ -119,12 +136,10 @@ private:
 			throw std::runtime_error("not all validation layers requested are supported!");
 		}
 
-		uint32_t glfwExtensionCount = 0;
-		const char** glfwExtensions;
-		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+		auto extensions = getRequiredExtensions();
 
 		//check required extensions against available extensions
-		if (!checkExtensionSupport(glfwExtensions, glfwExtensionCount))
+		if (!checkExtensionSupport(extensions))
 		{
 			throw std::runtime_error("not all required extensions supported!");
 		}
@@ -141,8 +156,8 @@ private:
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
 		createInfo.flags = 0;
-		createInfo.enabledExtensionCount = glfwExtensionCount;
-		createInfo.ppEnabledExtensionNames = glfwExtensions;
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+		createInfo.ppEnabledExtensionNames = extensions.data();
 		
 		if (enableValidationLayers)
 		{
