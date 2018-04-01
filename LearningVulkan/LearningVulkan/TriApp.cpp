@@ -29,6 +29,8 @@ private:
 	VkInstance instance;
 	//physical device will be auto destroyed when instance is destroyed
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkDevice device;
+	VkQueue graphicsQueue;
 	VkDebugReportCallbackEXT callback;
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
@@ -69,6 +71,7 @@ private:
 		createInstance();
 		setupDebugCallback();
 		pickPhysicalDevice();
+		createLogicalDevice();
 	}
 
 	void mainLoop()
@@ -81,6 +84,8 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyDevice(device, nullptr);
+
 		if (enableValidationLayers)
 		{
 			DestroyDebugReportCallbackEXT(instance, callback, nullptr);
@@ -94,6 +99,44 @@ private:
 	}
 
 #pragma endregion
+
+	void createLogicalDevice()
+	{
+		float queuePriority = 1.0f;
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		
+		VkDeviceQueueCreateInfo queueCreateInfo = {};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily;
+		queueCreateInfo.queueCount = 1;
+		//this priority allows us to influence scheduling of command buffer execution
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+
+		VkPhysicalDeviceFeatures deviceFeatures = {};
+
+		VkDeviceCreateInfo createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		createInfo.pQueueCreateInfos = &queueCreateInfo;
+		createInfo.queueCreateInfoCount = 1;
+		createInfo.pEnabledFeatures = &deviceFeatures;
+		createInfo.enabledExtensionCount = 0;
+		if (enableValidationLayers)
+		{
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+		else
+		{
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
+		{
+			THROW("failed to create logical device!")
+		}
+
+		vkGetDeviceQueue(device, indices.graphicsFamily, 0, &graphicsQueue);
+	}
 
 #pragma region Physical Device Functions
 
