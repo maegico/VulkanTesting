@@ -59,6 +59,13 @@ private:
 		}
 	};
 
+	struct SwapChainSupportDetails
+	{
+		VkSurfaceCapabilitiesKHR capabilities;
+		std::vector<VkSurfaceFormatKHR> formats;
+		std::vector<VkPresentModeKHR> presentModes;
+	};
+
 #pragma region Primary functions
 
 	void initWindow()
@@ -106,6 +113,38 @@ private:
 		glfwDestroyWindow(window);
 
 		glfwTerminate();
+	}
+
+#pragma endregion
+
+#pragma region Swap Chain Functions
+
+	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
+	{
+		SwapChainSupportDetails details;
+
+		//query basic surface capabilities
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+		//query supported surface formats
+		uint32_t formatCount;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+		if (formatCount != 0)
+		{
+			details.formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+		}
+
+		//query supported presentation modes
+		uint32_t presentCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, nullptr);
+		if (presentCount != 0)
+		{
+			details.presentModes.resize(presentCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, details.presentModes.data());
+		}
+
+		return details;
 	}
 
 #pragma endregion
@@ -262,8 +301,15 @@ private:
 		//for now I will force it to use a dedicated GPU
 			//any GPU is fine, but I want to use my dedicate GPU
 
+		bool swapChainAdequate = false;
+		if (extensionsSupported)
+		{
+			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+			swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+		}
+
 		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-			&& indices.isComplete() && extensionsSupported;
+			&& indices.isComplete() && extensionsSupported && swapChainAdequate;
 	}
 
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device)
