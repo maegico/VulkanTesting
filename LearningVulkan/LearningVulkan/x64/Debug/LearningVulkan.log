@@ -1,4 +1,3 @@
-﻿cl : Command line warning D9028: minimal rebuild failure, reverting to normal build
-  TriApp.cpp
+﻿  TriApp.cpp
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.exe
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.pdb (Partial PDB)
