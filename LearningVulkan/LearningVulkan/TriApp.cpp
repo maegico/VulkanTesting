@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <Windows.h>
 
 #include <vulkan/vulkan.h>
@@ -8,6 +9,7 @@
 #include <cstdlib>
 #include <vector>
 #include <set>
+#include <algorithm>
 
 #define THROW(x) { throw std::runtime_error(x); }
 
@@ -87,6 +89,7 @@ private:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain();
 	}
 
 	void mainLoop()
@@ -119,6 +122,14 @@ private:
 
 #pragma region Swap Chain Functions
 
+	void createSwapChain()
+	{
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+	}
+
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
 	{
 		SwapChainSupportDetails details;
@@ -145,6 +156,77 @@ private:
 		}
 
 		return details;
+	}
+
+	//find the right surface format/color depth
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
+	{
+		//A great describtion of the differences between RGB and sRGB
+		//https://stackoverflow.com/questions/12524623/what-are-the-practical-differences-when-working-with-colors-in-a-linear-vs-a-no
+
+		//check if we are free to choose any format
+		if (availableFormats.size() == 1 && availableFormats[0].format == VK_FORMAT_UNDEFINED)
+		{
+			return{ VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+		}
+
+		for (const auto& availableFormat : availableFormats)
+		{
+			if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+			{
+				return availableFormat;
+			}
+		}
+		
+		//otherwise we could rank formats, but for now we will just use the first available format
+		return availableFormats[0];
+	}
+
+	//look for the best present mode
+	//this determines how the swap chain presents images/switches buffers
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR> availablePresentModes)
+	{
+		//the only guaranteed available mode is VK_PRESENT_MODE_FIFO_KHR
+		//so as a last resort we will return it
+		VkPresentModeKHR bestMode = VK_PRESENT_MODE_FIFO_KHR;
+
+		
+		for (const auto& availablePresentMode : availablePresentModes)
+		{
+			//try to find triple buffering if possible
+			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+			{
+				return availablePresentMode;
+			}
+			//but some drivers might not support VK_PRESENT_MODE_FIFO_KHR yet,
+			//so query for immediate swapping
+			else if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR)
+			{
+				bestMode = availablePresentMode;
+			}
+		}
+
+		return bestMode;
+	}
+
+	//swap extent is the resolution of the swap chain images
+		//need to understand this function better
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
+	{
+		//not entirely sure about why we are doing this
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+		{
+			return capabilities.currentExtent;
+		}
+		else
+		{
+			VkExtent2D actualExtent = { WIDTH, HEIGHT };
+			//NOMINMAX makes it so the window.h macros min and max don't interfere with other versions
+			actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
+			actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));
+
+			return actualExtent;
+		}
 	}
 
 #pragma endregion
