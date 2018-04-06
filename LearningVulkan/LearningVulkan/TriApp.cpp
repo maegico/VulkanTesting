@@ -37,6 +37,7 @@ private:
 	VkQueue presentQueue;
 	VkDebugReportCallbackEXT callback;
 	VkSurfaceKHR surface;
+	VkSwapchainKHR swapChain;
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
 	};
@@ -102,6 +103,7 @@ private:
 
 	void cleanup()
 	{
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);
 
 		if (enableValidationLayers)
@@ -128,6 +130,67 @@ private:
 		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
 		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
 		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		//maxImageCount == 0, it means there is no limit besides memory requirements
+		if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+		{
+			imageCount = swapChainSupport.capabilities.maxImageCount;
+		}
+
+		VkSwapchainCreateInfoKHR createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		//imageArrayLayers says number of layers for each image
+			//always 1 unless you are doing stereoscopic 3D
+		createInfo.imageArrayLayers = 1;
+		//imageUsage says what operations we are using the swap chain for
+		//color attachment means we will render directly to them
+			//for stuff like post-procession use VK_IMAGE_USAGE_TRANSFER_DST_BIT
+				//for this you will use a memory operation to transfer the rendered image to a swap chain image
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices[] = { (uint32_t)indices.graphicsFamily, (uint32_t)indices.presentFamily };
+		//if the queueFamily being used for graphics isn't the same as the one used to present images
+			//we need to handle interaction between multiple queues
+			//in this case draw images in the swap chain from the graphics queue and then submit them on the presentation queue
+		if (indices.graphicsFamily != indices.presentFamily)
+		{
+			//VK_SHARING_MODE_CONCURRENT means images can be used across multiple queue families without transfering ownership
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		}
+		else
+		{
+			//VK_SHARING_MODE_EXCLUSIVE means an image is owned by one queue family at a time and ownership must be transfered
+				//offers the best performance
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0;	//optional
+			createInfo.pQueueFamilyIndices = nullptr;	//optional
+		}
+
+		//we can specify that images in the swap chain can be transformed if it is supported
+			//we can find supported transforms in capabilities.supportedTransforms
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+
+		//saying we don't want the alpha channel to be used for blending with other windows in the window system
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		createInfo.presentMode = presentMode;
+		//if clipped == true that means we don't care about the color of obscured pixels
+		createInfo.clipped = true;
+		//oldSwapchain used when you need to recreate the swapchain
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
+		{
+			THROW("failed to create swapchain!");
+		}
 	}
 
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
