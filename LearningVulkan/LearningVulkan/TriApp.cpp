@@ -28,19 +28,24 @@ public:
 	}
 
 private:
-	GLFWwindow* window;
-	VkInstance instance;
+	GLFWwindow* window;	//GLFW's window variable that has all the properties of a window
+	VkInstance instance;	//the instance of vulkan
 	//physical device will be auto destroyed when instance is destroyed
-	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;	//the hardware GPU to be used
 	VkDevice device;
-	VkQueue graphicsQueue;
-	VkQueue presentQueue;
-	VkDebugReportCallbackEXT callback;
+	VkQueue graphicsQueue;	//the queue used for drawing the graphics
+	VkQueue presentQueue;	//the queue used to present images
+	VkDebugReportCallbackEXT callback;	//the callback function to access details about errors
 	VkSurfaceKHR surface;
-	VkSwapchainKHR swapChain;
+	VkSwapchainKHR swapChain;	//the swap chain
+	std::vector<VkImage> swapChainImages;	//handles to the images in the swap chain
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
+	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
 	};
+	//the device extensions that we need/want
 	const std::vector<const char*> deviceExtensions = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
 	};
@@ -191,6 +196,15 @@ private:
 		{
 			THROW("failed to create swapchain!");
 		}
+
+		//retrieve handles to the images in the swap chain
+			//we query again since the implementation is allowed to create more images
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
 	}
 
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
