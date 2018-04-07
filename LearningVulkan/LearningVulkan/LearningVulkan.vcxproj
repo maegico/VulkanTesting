@@ -127,6 +127,11 @@
     <ClCompile Include="TestSource.cpp" />
     <ClCompile Include="TriApp.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\compile.bat" />
+    <None Include="shaders\shader.frag" />
+    <None Include="shaders\shader.vert" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
