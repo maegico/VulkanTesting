@@ -1,5 +1,4 @@
-﻿cl : Command line warning D9028: minimal rebuild failure, reverting to normal build
-  TriApp.cpp
-e:\mydocuments\projects\vulkantesting\learningvulkan\learningvulkan\triapp.cpp(717): warning C4838: conversion from 'const int' to 'uint32_t' requires a narrowing conversion
+﻿  TriApp.cpp
+e:\mydocuments\projects\vulkantesting\learningvulkan\learningvulkan\triapp.cpp(719): warning C4838: conversion from 'const int' to 'uint32_t' requires a narrowing conversion
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.exe
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.pdb (Partial PDB)
