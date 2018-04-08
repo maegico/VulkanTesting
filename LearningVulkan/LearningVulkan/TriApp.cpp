@@ -47,6 +47,7 @@ private:
 	std::vector<VkImageView> swapChainImageViews;	//the image views for the images in the swap chain
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
+	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 
 	//the validation layers we want enabled
@@ -105,6 +106,7 @@ private:
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createRenderPass();
 		createGraphicsPipeline();
 	}
 
@@ -119,6 +121,7 @@ private:
 	void cleanup()
 	{
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyRenderPass(device, renderPass, nullptr);
 
 		//since we create the image views we have to destroy them
 		for (auto imageView : swapChainImageViews)
@@ -768,10 +771,6 @@ private:
 		vertShaderModule = createShaderModule(vertShaderCode);
 		fragShaderModule = createShaderModule(fragShaderCode);
 
-		//the modules need to be cleaned up, so we will do it at the end
-		vkDestroyShaderModule(device, fragShaderModule, nullptr);
-		vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
 		VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
 		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -937,6 +936,10 @@ private:
 		{
 			THROW("failed to create pipeline layout!")
 		}
+
+		//the modules need to be cleaned up, so we will do it at the end
+		vkDestroyShaderModule(device, fragShaderModule, nullptr);
+		vkDestroyShaderModule(device, vertShaderModule, nullptr);
 	}
 
 	static std::vector<char> readFile(const std::string& filename)
@@ -978,6 +981,64 @@ private:
 	}
 
 #pragma endregion
+
+	//create a render pass object to describe:
+		//number of color and depth buffers
+		//number of samples to use for each
+		//how content should be handled throughout rendering ops
+	void createRenderPass()
+	{
+		//will create a single color buffer attachment
+			//represented by one of the images from the swap chain
+		VkAttachmentDescription colorAttachment = {};
+		colorAttachment.format = swapChainImageFormat;
+		//no multisampling, so we will only use 1 sample
+		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		//loadOp determines what to do with attachment before rendering
+			//currently we will clear the values to a constant at the start
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		//storeOp determines what to do with attachment after rendering
+			//currently we are going to store into memory for reading later
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		//initialLayout specifies which layout image before the render pass begins
+			//don't care what the previous layout the image was in
+				//contents of image are not guaranteed to be preserved, but we are going to clear it anyway
+		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		//finalLayout specifies which layout image after the render pass ends
+			//tells the image to be ready for presentation using the swap chain after rendering
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		//Subpasses reference one or more attachments
+		//the below is the reference
+		VkAttachmentReference colorAttachmentRef = {};
+		//index into attachment descriptions array
+		colorAttachmentRef.attachment = 0;
+		//specifies which layout we want the attachment to have during a subpass
+		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		VkSubpassDescription subpass = {};
+		//since Vulkan may support comput subpasses in the future,
+			//we have to be explicit about this being a graphics subpass
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &colorAttachmentRef;
+		//the index of the attachment in this array is directly referenced from the fragment shader
+			//by "layout(location = 0) out vec4 outColor" directive
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 1;
+		renderPassInfo.pAttachments = &colorAttachment;
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+
+		if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
+		{
+			THROW("failed to create a render pass!")
+		}
+	}
 };
 
 int main()
