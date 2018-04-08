@@ -47,6 +47,8 @@ private:
 	std::vector<VkImageView> swapChainImageViews;	//the image views for the images in the swap chain
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
+	VkPipelineLayout pipelineLayout;
+
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
@@ -116,6 +118,8 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
 		//since we create the image views we have to destroy them
 		for (auto imageView : swapChainImageViews)
 		{
@@ -781,6 +785,158 @@ private:
 		fragShaderStageInfo.pName = "main";
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+		//describes format of vertex data that will be passed to the vertex shader
+			//can do this in 2 ways:
+				//Bindings - spacing between data and whether the data is per-vertex or per-instance
+				//Attribute descriptions - type of the attributes passed to the vertex shader, which binding to load them from and at which offset
+		//for now we will specify that there is not vertex data to load
+		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		vertexInputInfo.vertexBindingDescriptionCount = 0;
+		vertexInputInfo.pVertexBindingDescriptions = nullptr;
+		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+
+		//describes two things: what kind of geometry will be drawn and if primitive restart should be enabled
+		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+		//describes the region of the framebuffer that the output will be rendered to
+		VkViewport viewport = {};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = (float)swapChainExtent.width;
+		viewport.height = (float)swapChainExtent.height;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+
+		//Scissor rectangles define in which regions pixels will actually be stored
+			//any pixels outside the scissor rectangle will be discarded by the rasterizer
+		VkRect2D scissor = {};
+		scissor.offset = { 0,0 };
+		scissor.extent = swapChainExtent;
+
+		VkPipelineViewportStateCreateInfo viewportState = {};
+		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		viewportState.viewportCount = 1;
+		viewportState.pViewports = &viewport;
+		viewportState.scissorCount = 1;
+		viewportState.pScissors = &scissor;
+
+		VkPipelineRasterizationStateCreateInfo rasterizer = {};
+		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rasterizer.depthClampEnable = VK_FALSE;	//whether to clamp things past the near and far planes to those planes
+		rasterizer.rasterizerDiscardEnable = VK_FALSE;	//whether geometry should never pass through the rasterizer stage (basically disable output to framebuffer)
+		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;	//whether to do fill, line, or point mode
+		rasterizer.lineWidth = 1.0f;	//thickness of lines in terms of # of fragments(any line wider than 1 requires a feature)
+		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;	//which faces to cull
+		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;	//the order that triangles are created
+		rasterizer.depthBiasEnable = VK_FALSE;
+		rasterizer.depthBiasConstantFactor = 0.0f;	//optional
+		rasterizer.depthBiasClamp = 0.0f;	//optional
+		rasterizer.depthBiasSlopeFactor = 0.0f;	//optional
+
+		//a form of anti-aliasing
+			//combines the fragment shader results of multiple polygons that rasterize to the same pixel
+			//since it doesn't run the fragment shader multiple times if only one polygon maps to a pixel,
+				//it is much less expensive than simply rendering a higher res and then downscaling
+		//we won't use this for the tutorial
+		VkPipelineMultisampleStateCreateInfo multisampling = {};
+		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampling.sampleShadingEnable = VK_FALSE;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.minSampleShading = 1.0f;	//optional
+		multisampling.pSampleMask = nullptr;	//optional
+		multisampling.alphaToCoverageEnable = VK_FALSE;	//optional
+		multisampling.alphaToOneEnable = VK_FALSE;	//optional
+
+		//we might also need to deal with the depth or stencil buffer
+		//don't have one right now, so we will ignore it
+
+		//Two ways to colorblend:
+			//1) mix the old and new value to produce the final color
+			//2) combine the old and the new value using a bitwise op
+
+		//contains configuration per attached framebuffer
+			//typically used for alpha blending
+		VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		colorBlendAttachment.blendEnable = VK_FALSE;
+		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;	//Optional
+		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;	//Optional
+		colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;	//Optional
+		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;	//Optional
+		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;	//Optional
+		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;	//Optional
+
+		/*	The above struct is best mimiced by the below code
+		if (blendEnable) {
+			finalColor.rgb = (srcColorBlendFactor * newColor.rgb) <colorBlendOp> (dstColorBlendFactor * oldColor.rgb);
+			finalColor.a = (srcAlphaBlendFactor * newColor.a) <alphaBlendOp> (dstAlphaBlendFactor * oldColor.a);
+		} else {
+			finalColor = newColor;
+		}
+
+		finalColor = finalColor & colorWriteMask;
+		*/
+		//above is sudo code for the struct which is used for color blending
+		//Most common use is alpha blending in which case final color needs to be computed like:
+		/*
+		finalColor.rgb = newAlpha * newColor + (1 - newAlpha) * oldColor;
+		finalColor.a = newAlpha.a;
+		
+		In terms of struct params:
+
+		colorBlendAttachment.blendEnable = VK_TRUE;
+		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		*/
+
+		//references the array of structures for all of the framebuffers
+		//also allows the setting of blend constants that can be used as blend factors in the above calculations
+			//if you want to use the bitwise combination methode set logicOpEnable to true
+				//this will automatically disable the first method
+		VkPipelineColorBlendStateCreateInfo colorBlending = {};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.logicOpEnable = VK_FALSE;
+		colorBlending.logicOp = VK_LOGIC_OP_COPY;	//Optional
+		colorBlending.attachmentCount = 1;
+		colorBlending.pAttachments = &colorBlendAttachment;
+		colorBlending.blendConstants[0] = 0.0f;	//Optional
+		colorBlending.blendConstants[1] = 0.0f;	//Optional
+		colorBlending.blendConstants[2] = 0.0f;	//Optional
+		colorBlending.blendConstants[3] = 0.0f;	//Optional
+
+		//if we need to change something like size of the viewport need to create the below
+		/*VkDynamicState dynamicStates[] = {
+			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_LINE_WIDTH
+		};
+
+		VkPipelineDynamicStateCreateInfo dynamicState = {};
+		dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynamicState.dynamicStateCount = 2;
+		dynamicState.pDynamicStates = dynamicStates;*/
+
+		//you need to specify uniform values during pipeline creation
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = 0;	//Optional
+		pipelineLayoutInfo.pSetLayouts = nullptr;	//Optional
+		pipelineLayoutInfo.pushConstantRangeCount = 0;	//Optional
+		pipelineLayoutInfo.pPushConstantRanges = nullptr;	//Optional
+
+		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
+		{
+			THROW("failed to create pipeline layout!")
+		}
 	}
 
 	static std::vector<char> readFile(const std::string& filename)
