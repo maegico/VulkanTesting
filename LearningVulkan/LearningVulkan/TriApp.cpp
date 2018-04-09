@@ -1149,6 +1149,20 @@ private:
 		{
 			THROW("failed to allocate command buffers")
 		}
+
+		//recording a command buffer
+		for (size_t i = 0; i < commandBuffers.size(); i++)
+		{
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			//simultaneous use means the buffer can be resubmitted while it is also already pending execution
+				//we use simultaneous flag since we may already be scheduling the drawing commands for the next frame while the last frame isn't done
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+			beginInfo.pInheritanceInfo = nullptr;	//Optional
+
+			//if the buffer was already recorded once, then a call to the below function will implicitly reset it
+			vkBeginCommandBuffer(commandBuffers[i], &beginInfo);
+		}
 	}
 };
 
