@@ -1184,6 +1184,24 @@ private:
 				//VK_SUBPASS_CONTENTS_INLINE - render pass commands will be embedded in the primary command buffer itself, no secondary buffers will be executed
 				//VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS - render pass commands will be executed from secondary command buffers
 			vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			//bind the graphics pipeline
+			//second parameter tells whether the pipeline is graphics or compute
+			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+			//the fourth parameter is the offset into the vertex buffer
+				//defines lowest value of Gl_VertexIndex
+			//the last one is the offset for instanced rendering
+				//defines lowest value of gl_InstanceIndex
+			vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+			//end the render pass
+			vkCmdEndRenderPass(commandBuffers[i]);
+
+			if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS)
+			{
+				THROW("failed to record command buffer!")
+			}
 		}
 	}
 };
