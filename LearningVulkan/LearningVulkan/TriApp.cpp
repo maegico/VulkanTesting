@@ -52,6 +52,7 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
+	std::vector<VkCommandBuffer> commandBuffers;
 
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
@@ -113,6 +114,7 @@ private:
 		createGraphicsPipeline();
 		createFramebuffers();
 		createCommandPool();
+		createCommandBuffers();
 	}
 
 	void mainLoop()
@@ -1126,6 +1128,26 @@ private:
 		if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
 		{
 			THROW("failed to create command pool!")
+		}
+	}
+
+	void createCommandBuffers()
+	{
+		commandBuffers.resize(swapChainFramebuffers.size());
+
+		VkCommandBufferAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.commandPool = commandPool;
+		//level specifies if the allocate buffers are primary or secondary buffers
+			//primary can be submitted to a queue for execution. but can't be called from other command buffers
+			//secondary can't be submitted directly, but can be called from primary command buffers
+				//apparently can be used to reuse common ops from primary buffers??
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS)
+		{
+			THROW("failed to allocate command buffers")
 		}
 	}
 };
