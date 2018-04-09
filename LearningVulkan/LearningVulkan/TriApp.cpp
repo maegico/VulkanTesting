@@ -50,6 +50,7 @@ private:
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
+	std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
@@ -109,6 +110,7 @@ private:
 		createImageViews();
 		createRenderPass();
 		createGraphicsPipeline();
+		createFramebuffers();
 	}
 
 	void mainLoop()
@@ -121,6 +123,11 @@ private:
 
 	void cleanup()
 	{
+		for (auto framebuffer : swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -1068,6 +1075,36 @@ private:
 	}
 
 #pragma endregion
+
+	//Set up the render pass to expect a single framebuffer with same format as the swap chain images
+	//the attachments specified during render pass creation are bound by wrapping them into a VkFramebuffer obj
+		//A framebuffer obj references all VkImageView objects that represent attachments ?????Confused on this point?????
+			//means there will only be a single one (color attachment)
+			//the image we use depends on which image the swap chain returns when we retrieve one for presentation
+				//So we have to create a framebuffer for all images in swap chain and choose the correct one at drawing time
+	void createFramebuffers()
+	{
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+
+		for (size_t i = 0; i < swapChainImageViews.size(); i++)
+		{
+			VkImageView attachments[] = { swapChainImageViews[i] };
+
+			VkFramebufferCreateInfo framebufferInfo = {};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = swapChainExtent.width;
+			framebufferInfo.height = swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
+			{
+				THROW("failed to create framebuffer!")
+			}
+		}
+	}
 };
 
 int main()
