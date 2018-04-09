@@ -1162,6 +1162,28 @@ private:
 
 			//if the buffer was already recorded once, then a call to the below function will implicitly reset it
 			vkBeginCommandBuffer(commandBuffers[i], &beginInfo);
+
+			VkRenderPassBeginInfo renderPassInfo = {};
+			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			renderPassInfo.renderPass = renderPass;
+			//we created a framebuffer for each swap chain image that specifies it as a color attachment
+			renderPassInfo.framebuffer = swapChainFramebuffers[i];
+
+			//The below define the size of the render area
+			renderPassInfo.renderArea.offset = { 0,0 };
+			renderPassInfo.renderArea.extent = swapChainExtent;
+
+			//These are the clear values to use for VK_ATTACHMENT_LOAD_OP_CLEAR
+				//we use this as the load operation for the color attachment
+			VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			renderPassInfo.clearValueCount = 1;
+			renderPassInfo.pClearValues = &clearColor;
+
+			//all functions that record commands can be recognized by "vkCmd" prefix
+			//the final parameter controls how the drawing commands within the render pass will be provided
+				//VK_SUBPASS_CONTENTS_INLINE - render pass commands will be embedded in the primary command buffer itself, no secondary buffers will be executed
+				//VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS - render pass commands will be executed from secondary command buffers
+			vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 		}
 	}
 };
