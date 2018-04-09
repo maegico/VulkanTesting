@@ -51,6 +51,7 @@ private:
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
+	VkCommandPool commandPool;
 
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
@@ -111,6 +112,7 @@ private:
 		createRenderPass();
 		createGraphicsPipeline();
 		createFramebuffers();
+		createCommandPool();
 	}
 
 	void mainLoop()
@@ -123,6 +125,8 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyCommandPool(device, commandPool, nullptr);
+
 		for (auto framebuffer : swapChainFramebuffers)
 		{
 			vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -1103,6 +1107,25 @@ private:
 			{
 				THROW("failed to create framebuffer!")
 			}
+		}
+	}
+
+	void createCommandPool()
+	{
+		//Command buffers are executed by submitting them on one of the device queues
+		//Each command pool can only allocate command buffers that are submitted on a single type of queue
+			//since we are recording commands for drawing we will use the graphics queue family
+
+		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+		VkCommandPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+		poolInfo.flags = 0;
+
+		if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
+		{
+			THROW("failed to create command pool!")
 		}
 	}
 };
