@@ -127,6 +127,9 @@ private:
 			glfwPollEvents();
 			drawFrame();
 		}
+
+		//idles the program until drawing is done and the semaphores are released
+		vkDeviceWaitIdle(device);
 	}
 
 	void cleanup()
@@ -826,12 +829,33 @@ private:
 		//the index of the attachment in this array is directly referenced from the fragment shader
 		//by "layout(location = 0) out vec4 outColor" directive
 
+		//subpass dependencies
+		//subpasses in a render pass automatically take care of image layout transitions
+		//transitions are controlled by subpass dependencies
+		VkSubpassDependency dependency = {};
+		//srcSubpass refers to the dependent subpass
+		//VK_SUBPASS_EXTERNAL refers to the implicit subpass before or after the render pass
+		//depends on whether it is srcSubpass or dstSubpass
+		//dstSubpass mush always be higher than srcSubpass
+		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependency.dstSubpass = 0;
+
+		//access mask is the op to wait on
+		//stage mask is the stages in which these operations occur
+		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.srcAccessMask = 0;
+		//wait on either reading or writing the color attachment in the color attachment stage
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
 		VkRenderPassCreateInfo renderPassInfo = {};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 		renderPassInfo.attachmentCount = 1;
 		renderPassInfo.pAttachments = &colorAttachment;
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.dependencyCount = 1;
+		renderPassInfo.pDependencies = &dependency;
 
 		if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
 		{
@@ -1266,7 +1290,22 @@ private:
 			THROW("failed to submit draw command buffer!")
 		}
 
-		//s
+		//present the images
+			//submitting the result to the swap chain to have it eventually show up on the screen
+
+		VkPresentInfoKHR presentInfo = {};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = signalSemaphores;
+		VkSwapchainKHR swapChains[] = { swapChain };
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = swapChains;
+		presentInfo.pImageIndices = &imageIndex;
+		presentInfo.pResults = nullptr;	//Optional: allows you to specify an array of VkResult values
+			//good for checking every individual swap chain if presentation is successful
+
+		//submits the request to present an image to the swap chain
+		vkQueuePresentKHR(presentQueue, &presentInfo);
 	}
 };
 
