@@ -1306,8 +1306,31 @@ private:
 
 		//submits the request to present an image to the swap chain
 		vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		if (enableValidationLayers)
+		{
+			//wait for presentation to finish before starting to draw the next frame
+			vkQueueWaitIdle(presentQueue);
+		}
 	}
 };
+
+//In a game with the state changin every frame the most efficient way is:
+
+/*
+void drawFrame() {
+	updateAppState();
+
+	vkQueueWaitIdle(presentQueue);
+
+	vkAcquireNextImageKHR(...)
+
+	submitDrawCommands();
+
+	vkQueuePresentKHR(presentQueue, &presentInfo);
+}
+//This allows you to update the state of the app while the previous frame is being rendered
+*/
 
 int main()
 {
