@@ -3,6 +3,7 @@
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 
 #include <iostream>
 #include <stdexcept>
@@ -11,8 +12,47 @@
 #include <set>
 #include <algorithm>
 #include <fstream>
+#include <array>
 
 #define THROW(x) { throw std::runtime_error(x); }
+
+struct Vertex
+{
+	glm::vec2 pos;
+	glm::vec3 color;
+
+	static VkVertexInputBindingDescription getBindingDescription()
+	{
+		//describes the rate to load data from memory throughout the vertices
+		//specifies number of bytes between data entries
+		//specifies whether to move to the next data entry after each vertex or each instance
+		VkVertexInputBindingDescription bindingDescription = {};
+		bindingDescription.binding = 0;
+		bindingDescription.stride = sizeof(Vertex);
+		//inputRate can be one of 2 things:
+			//VK_VERTEX_INPUT_RATE_VERTEX - move to the next data entry after each vertex
+			//VK_VERTEX_INPUT_RATE_INSTANCE - move to the next data entry after each instance
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+		return bindingDescription;
+	}
+
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
+	{
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 0;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		return attributeDescriptions;
+	}
+};
 
 //we will be compiling glsl into SPIR-V with
 	//glslangValidator.exe
@@ -55,6 +95,12 @@ private:
 	std::vector<VkCommandBuffer> commandBuffers;
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
+
+	const std::vector<Vertex> vertices = {
+		{ { 0.0f, -0.5f },{ 1.0f, 0.0f, 0.0f } },
+		{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
+		{ { -0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f } }
+	};
 
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
@@ -932,6 +978,9 @@ private:
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
+		auto bindingDescription = Vertex::getBindingDescription();
+		auto attributeDescription = Vertex::getAttributeDescriptions();
+
 		//describes format of vertex data that will be passed to the vertex shader
 			//can do this in 2 ways:
 				//Bindings - spacing between data and whether the data is per-vertex or per-instance
@@ -939,10 +988,10 @@ private:
 		//for now we will specify that there is not vertex data to load
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 0;
-		vertexInputInfo.pVertexBindingDescriptions = nullptr;
-		vertexInputInfo.vertexAttributeDescriptionCount = 0;
-		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescription.size());
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescription.data();
 
 		//describes two things: what kind of geometry will be drawn and if primitive restart should be enabled
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};

@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\Shaders">
+      <UniqueIdentifier>{e0ca029e-2409-41a9-af91-b99034ce2b62}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="TestSource.cpp">
@@ -24,13 +27,19 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\compile.bat">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\Shaders</Filter>
+    </None>
+    <None Include="shaders\ogshader.frag">
+      <Filter>Source Files\Shaders</Filter>
+    </None>
+    <None Include="shaders\ogshader.vert">
+      <Filter>Source Files\Shaders</Filter>
     </None>
     <None Include="shaders\shader.frag">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\Shaders</Filter>
     </None>
     <None Include="shaders\shader.vert">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\Shaders</Filter>
     </None>
   </ItemGroup>
 </Project>
