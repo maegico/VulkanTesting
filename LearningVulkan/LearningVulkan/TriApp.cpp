@@ -1235,7 +1235,38 @@ private:
 			//fences are designed to sync rendering with app itself
 			//semaphores are used to sync ops within or accross command queues
 
+		//acquire image from swap chain
+		uint32_t imageIndex;
+		//third parameter specifies a timeout in nanoseconds for an image to become available
+			//using max of 64bit uint disables this
+		//the fourth and fifth params are for the semaphore and fence
+			//we are only using a semaphore
+		//final param the out variable to store index of the newly avaiable swap chain image
+		vkAcquireNextImageKHR(device, swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
+		//submit the command buffer
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+		VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+		submitInfo.waitSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = waitSemaphores;
+		submitInfo.pWaitDstStageMask = waitStages;	//what stage(s) of the pipeline to wait
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+
+		VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = signalSemaphores;
+
+		//can take an array of VkSubmitInfo structs for when the workload is much larger
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+		{
+			THROW("failed to submit draw command buffer!")
+		}
+
+		//s
 	}
 };
 
