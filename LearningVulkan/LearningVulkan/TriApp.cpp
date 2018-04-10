@@ -53,6 +53,8 @@ private:
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
 	std::vector<VkCommandBuffer> commandBuffers;
+	VkSemaphore imageAvailableSemaphore;
+	VkSemaphore renderFinishedSemaphore;
 
 	//the validation layers we want enabled
 	const std::vector<const char*> validationLayers = {
@@ -115,6 +117,7 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createCommandBuffers();
+		createSemaphores();
 	}
 
 	void mainLoop()
@@ -122,11 +125,15 @@ private:
 		while (!glfwWindowShouldClose(window))
 		{
 			glfwPollEvents();
+			drawFrame();
 		}
 	}
 
 	void cleanup()
 	{
+		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+
 		vkDestroyCommandPool(device, commandPool, nullptr);
 
 		for (auto framebuffer : swapChainFramebuffers)
@@ -1203,6 +1210,32 @@ private:
 				THROW("failed to record command buffer!")
 			}
 		}
+	}
+
+	void createSemaphores()
+	{
+		VkSemaphoreCreateInfo semaphoreInfo = {};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS
+			|| vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS)
+		{
+			THROW("failed to create semaphores!")
+		}
+	}
+
+	void drawFrame()
+	{
+		//will acquire an image from the swap chain
+		//execute the command buffer with that image as attachment in the framebuffer
+		//return the image to the swap chain for presentation
+
+		//all the above operations are run asynchronously and will return before the operation is finished
+		//can either use fences or semaphores to synchronize
+			//fences are designed to sync rendering with app itself
+			//semaphores are used to sync ops within or accross command queues
+
+
 	}
 };
 
