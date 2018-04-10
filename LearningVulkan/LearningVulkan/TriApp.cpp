@@ -98,9 +98,13 @@ private:
 		//don't create OpenGL context
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		//disable window resizing
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+
+		//allows us to store an arbitrary pointer in the window object
+		glfwSetWindowUserPointer(window, this);
+		glfwSetWindowSizeCallback(window, TriApp::onWindowResized);
 	}
 
 	void initVulkan()
@@ -134,27 +138,13 @@ private:
 
 	void cleanup()
 	{
+		cleanupSwapChain();
+
 		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
 		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
 
 		vkDestroyCommandPool(device, commandPool, nullptr);
 
-		for (auto framebuffer : swapChainFramebuffers)
-		{
-			vkDestroyFramebuffer(device, framebuffer, nullptr);
-		}
-
-		vkDestroyPipeline(device, graphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-		vkDestroyRenderPass(device, renderPass, nullptr);
-
-		//since we create the image views we have to destroy them
-		for (auto imageView : swapChainImageViews)
-		{
-			vkDestroyImageView(device, imageView, nullptr);
-		}
-
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);
 
 		if (enableValidationLayers)
@@ -163,12 +153,18 @@ private:
 		}
 
 		vkDestroySurfaceKHR(instance, surface, nullptr);
-
 		vkDestroyInstance(instance, nullptr);
 
 		glfwDestroyWindow(window);
 
 		glfwTerminate();
+	}
+
+	static void onWindowResized(GLFWwindow* window, int width, int height)
+	{
+		//since recreateswapchain is not a static function we need to get an instance of this class to call it
+		TriApp* app = reinterpret_cast<TriApp*>(glfwGetWindowUserPointer(window));
+		app->recreateSwapChain();
 	}
 
 #pragma endregion
@@ -571,6 +567,50 @@ private:
 
 #pragma region Swap Chain Functions
 
+	void cleanupSwapChain()
+	{
+		for (auto framebuffer : swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
+		//instead of recreating the command pool, they are just cleaning up the existing command buffers
+		//this way we just use the existing pool to allocate the new buffers
+		vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+		vkDestroyPipeline(device, graphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyRenderPass(device, renderPass, nullptr);
+
+		//since we create the image views we have to destroy them
+		for (auto imageView : swapChainImageViews)
+		{
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+
+	void recreateSwapChain()
+	{
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+		if (width == 0 || height == 0) return;
+
+		//wait until all resources are free
+		vkDeviceWaitIdle(device);
+
+		cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+		createRenderPass();
+		//we could avoid recreating the pipeline by using dynamic state for viewports and scissor rects
+		createGraphicsPipeline();
+		createFramebuffers();
+		createCommandBuffers();
+	}
+
 	void createSwapChain()
 	{
 		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
@@ -739,7 +779,10 @@ private:
 		}
 		else
 		{
-			VkExtent2D actualExtent = { WIDTH, HEIGHT };
+			int width, height;
+			glfwGetWindowSize(window, &width, &height);
+
+			VkExtent2D actualExtent = { width, height };
 			//NOMINMAX makes it so the window.h macros min and max don't interfere with other versions
 			actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
 			actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));
@@ -1261,12 +1304,25 @@ private:
 
 		//acquire image from swap chain
 		uint32_t imageIndex;
+
 		//third parameter specifies a timeout in nanoseconds for an image to become available
 			//using max of 64bit uint disables this
 		//the fourth and fifth params are for the semaphore and fence
 			//we are only using a semaphore
 		//final param the out variable to store index of the newly avaiable swap chain image
-		vkAcquireNextImageKHR(device, swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+		//if the swap chain is out of date, recreate it and try again next frame
+		//we are ignoring the suboptimal case
+		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		{
+			recreateSwapChain();
+			return;
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+		{
+			THROW("failed to acquire swap chain image!")
+		}
 
 		//submit the command buffer
 		VkSubmitInfo submitInfo = {};
@@ -1305,7 +1361,16 @@ private:
 			//good for checking every individual swap chain if presentation is successful
 
 		//submits the request to present an image to the swap chain
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+		{
+			recreateSwapChain();
+		}
+		else if (result != VK_SUCCESS)
+		{
+			THROW("failed to present swap chain image!")
+		}
 
 		if (enableValidationLayers)
 		{
