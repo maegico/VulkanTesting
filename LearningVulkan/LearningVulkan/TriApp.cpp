@@ -468,6 +468,17 @@ private:
 
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
 	{
+		//so, for the staging queue you need a queue family that supports transfer ops
+			//any queue family that supports graphics or comput already implicitly support it
+		//we won't make a new queue, but if you want to
+		/*
+		Modify QueueFamilyIndices and findQueueFamilies to explicitly look for a queue family with the VK_QUEUE_TRANSFER bit, but not the VK_QUEUE_GRAPHICS_BIT.
+		Modify createLogicalDevice to request a handle to the transfer queue
+		Create a second command pool for command buffers that are submitted on the transfer queue family
+		Change the sharingMode of resources to be VK_SHARING_MODE_CONCURRENT and specify both the graphics and transfer queue families
+		Submit any transfer commands like vkCmdCopyBuffer (which we'll be using in this chapter) to the transfer queue instead of the graphics queue
+		*/
+
 		QueueFamilyIndices indices;
 
 		uint32_t queueFamilyCount = 0;
@@ -1440,47 +1451,22 @@ private:
 
 	void createVertexBuffer()
 	{
-		VkBufferCreateInfo bufferInfo = {};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-		//tell it what type of buffer is being created
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		//just like images in the swap chain, buffers can also be owned by a specific queue family
-			//can also be shared by multiple queue families
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
-		{
-			THROW("failed to create vertex buffer")
-		}
-
-		VkMemoryRequirements memRequirements;
-		vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
-
-		VkMemoryAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		allocInfo.allocationSize = memRequirements.size;
-		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
-		{
-			THROW("failed to allocate vertex buffer memory!")
-		}
-
-		//fourth param is offset within the region of memory
-			//if it is non-zero it must be divisible by memRequirements.alignment
-		vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+		createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			vertexBuffer, vertexBufferMemory);
 
 		//copy vertex data to the buffer
 			//done by mapping the buffer memory into CPU accessible memory with vkMapMemory
 		void* data;
 		//acces a region of the specified mem resource defined by an offset and size
-		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+		vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
 		//now we just copy the memory over, but the driver may not immediately do this (could be because of caching, etc.)
 			//two ways of handling it:
 				//use a mem heap that is host coherent (we use this one)
 				//call vkFlushMappedMemoryRanges after writing to the mapped memory
 					//then call vkInvalidateMappedMemoryRanges before reading from the mapped memory
-		memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+		memcpy(data, vertices.data(), (size_t)bufferSize);
 		vkUnmapMemory(device, vertexBufferMemory);
 	}
 
@@ -1505,6 +1491,41 @@ private:
 		}
 
 		THROW("failed to find suitable memory type!")
+	}
+
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+		VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+	{
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = size;
+		//tell it what type of buffer is being created
+		bufferInfo.usage = usage;
+		//just like images in the swap chain, buffers can also be owned by a specific queue family
+			//can also be shared by multiple queue families
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+		{
+			THROW("failed to create buffer!")
+		}
+
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memRequirements.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
+		{
+			THROW("failed to allocate buffer memory!")
+		}
+
+		//fourth param is offset within the region of memory
+			//if it is non-zero it must be divisible by memRequirements.alignment
+		vkBindBufferMemory(device, buffer, bufferMemory, 0);
 	}
 };
 
