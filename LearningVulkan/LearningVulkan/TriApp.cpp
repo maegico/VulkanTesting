@@ -1452,22 +1452,37 @@ private:
 	void createVertexBuffer()
 	{
 		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
-		createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			vertexBuffer, vertexBufferMemory);
 
-		//copy vertex data to the buffer
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		//src means the buffer can be used as source in a mem transfer op
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			stagingBuffer, stagingBufferMemory);
+
+		//copy vertex data to the staging buffer
 			//done by mapping the buffer memory into CPU accessible memory with vkMapMemory
 		void* data;
 		//acces a region of the specified mem resource defined by an offset and size
-		vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
 		//now we just copy the memory over, but the driver may not immediately do this (could be because of caching, etc.)
 			//two ways of handling it:
 				//use a mem heap that is host coherent (we use this one)
 				//call vkFlushMappedMemoryRanges after writing to the mapped memory
 					//then call vkInvalidateMappedMemoryRanges before reading from the mapped memory
 		memcpy(data, vertices.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, vertexBufferMemory);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		//dst means buffer can be used as destination in a mem transfer op
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+
+		//we can't use vkMapMemory since the memory is device local
+		//so we use this function
+		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -1518,6 +1533,11 @@ private:
 		allocInfo.allocationSize = memRequirements.size;
 		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
 
+		//in a real world app, shouldn't call this for every individual buffer
+			//there is a max that the physical device labels as maxMemoryAllocationCount
+		//should use a custom allocator that splits up a single allocation among many different objects by using the offset parameters
+			//or you could use the VulkanMemoryAllocator library\
+				//https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
 		if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
 		{
 			THROW("failed to allocate buffer memory!")
@@ -1526,6 +1546,55 @@ private:
 		//fourth param is offset within the region of memory
 			//if it is non-zero it must be divisible by memRequirements.alignment
 		vkBindBufferMemory(device, buffer, bufferMemory, 0);
+	}
+
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+	{
+		//Mem transfer ops are executed using command buffers, just like drawing commands
+		//So first allocate a temp command buffer
+			//we could create a separate command pool for these temporary short-lived buffers
+			//should use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag for this case
+		VkCommandBufferAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandPool = commandPool;
+		allocInfo.commandBufferCount = 1;
+
+		VkCommandBuffer commandBuffer;
+		vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+		//start recording the command buffer
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		//says we will only use the buffer once
+			//good practice to tell the drive about our intent using one_time_submit_bit
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		//since we only need a single operation,
+		//we begin, submit the op, then we end recording
+		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+		VkBufferCopy copyRegion = {};
+		copyRegion.srcOffset = 0;	//Optional
+		copyRegion.dstOffset = 0;	//Optional
+		copyRegion.size = size;
+		//below takes an array of regions to copy(regions are made of VkBufferCopy structs)
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+		vkEndCommandBuffer(commandBuffer);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+
+		vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		//we want the transfer on buffers immediately, so there are 2 ways
+			//use a fence and wait with vkWaitForFences()
+				//would allow you to schedule multiple transfers simultaneously and wait for them all to complete
+			//or wait for transfer queue to become idle with vkQueueWaitIdle()
+		vkQueueWaitIdle(graphicsQueue);
+
+		vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 	}
 };
 
