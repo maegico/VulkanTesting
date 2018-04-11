@@ -46,7 +46,7 @@ struct Vertex
 		attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
 		attributeDescriptions[1].binding = 0;
-		attributeDescriptions[1].location = 0;
+		attributeDescriptions[1].location = 1;
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[1].offset = offsetof(Vertex, color);
 
@@ -95,6 +95,8 @@ private:
 	std::vector<VkCommandBuffer> commandBuffers;
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
 
 	const std::vector<Vertex> vertices = {
 		{ { 0.0f, -0.5f },{ 1.0f, 0.0f, 0.0f } },
@@ -166,6 +168,7 @@ private:
 		createGraphicsPipeline();
 		createFramebuffers();
 		createCommandPool();
+		createVertexBuffer();
 		createCommandBuffers();
 		createSemaphores();
 	}
@@ -185,6 +188,9 @@ private:
 	void cleanup()
 	{
 		cleanupSwapChain();
+
+		vkDestroyBuffer(device, vertexBuffer, nullptr);
+		vkFreeMemory(device, vertexBufferMemory, nullptr);
 
 		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
 		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
@@ -1312,11 +1318,15 @@ private:
 			//second parameter tells whether the pipeline is graphics or compute
 			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
+			VkBuffer vertexBuffers[] = { vertexBuffer };
+			VkDeviceSize offsets[] = { 0 };
+			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
+
 			//the fourth parameter is the offset into the vertex buffer
 				//defines lowest value of Gl_VertexIndex
 			//the last one is the offset for instanced rendering
 				//defines lowest value of gl_InstanceIndex
-			vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+			vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
 			//end the render pass
 			vkCmdEndRenderPass(commandBuffers[i]);
@@ -1426,6 +1436,75 @@ private:
 			//wait for presentation to finish before starting to draw the next frame
 			vkQueueWaitIdle(presentQueue);
 		}
+	}
+
+	void createVertexBuffer()
+	{
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+		//tell it what type of buffer is being created
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		//just like images in the swap chain, buffers can also be owned by a specific queue family
+			//can also be shared by multiple queue families
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
+		{
+			THROW("failed to create vertex buffer")
+		}
+
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memRequirements.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
+		{
+			THROW("failed to allocate vertex buffer memory!")
+		}
+
+		//fourth param is offset within the region of memory
+			//if it is non-zero it must be divisible by memRequirements.alignment
+		vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+		//copy vertex data to the buffer
+			//done by mapping the buffer memory into CPU accessible memory with vkMapMemory
+		void* data;
+		//acces a region of the specified mem resource defined by an offset and size
+		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+		//now we just copy the memory over, but the driver may not immediately do this (could be because of caching, etc.)
+			//two ways of handling it:
+				//use a mem heap that is host coherent (we use this one)
+				//call vkFlushMappedMemoryRanges after writing to the mapped memory
+					//then call vkInvalidateMappedMemoryRanges before reading from the mapped memory
+		memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+		vkUnmapMemory(device, vertexBufferMemory);
+	}
+
+	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+	{
+		//the struct has two arrays memoryTypes and memoryHeaps
+			//Memory heaps are distinct memory resources like dedicated VRAM and swap space in RAM for when VRAM runs out
+			//Memory types consist of an array of VkMemoryType structs that specify heap and properties of each type
+		VkPhysicalDeviceMemoryProperties memProperties;
+		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+		{
+			//typefilter acts a bit field of memory types that are suitable
+			//the below acts as a mask to only look at the one bit
+				//if that bit is on the if statement should return true
+			//for memProperties we are checking the properties of the mem against the passed in properties bit field
+			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+			{
+				return i;
+			}
+		}
+
+		THROW("failed to find suitable memory type!")
 	}
 };
 
