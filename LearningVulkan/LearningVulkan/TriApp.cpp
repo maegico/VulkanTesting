@@ -105,6 +105,8 @@ private:
 	VkDeviceMemory indexBufferMemory;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
+	VkDescriptorPool descriptorPool;
+	VkDescriptorSet descriptorSet;
 
 	const std::vector<Vertex> vertices = {
 		{ { -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f } },
@@ -192,6 +194,8 @@ private:
 		createVertexBuffer();
 		createIndexBuffer();
 		createUniformBuffer();
+		createDescriptorPool();
+		createDescriptorSet();
 		createCommandBuffers();
 		createSemaphores();
 	}
@@ -201,6 +205,8 @@ private:
 		while (!glfwWindowShouldClose(window))
 		{
 			glfwPollEvents();
+
+			updateUniformBuffer();
 			drawFrame();
 		}
 
@@ -211,6 +217,8 @@ private:
 	void cleanup()
 	{
 		cleanupSwapChain();
+
+		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		vkDestroyBuffer(device, uniformBuffer, nullptr);
@@ -1075,7 +1083,9 @@ private:
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;	//whether to do fill, line, or point mode
 		rasterizer.lineWidth = 1.0f;	//thickness of lines in terms of # of fragments(any line wider than 1 requires a feature)
 		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;	//which faces to cull
-		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;	//the order that triangles are created
+		//editted frontFace, since the y-flip in the proj matrix the matrices are being drawn in clockwise order
+			//this causing backface culling to kick in, preventing any geometry from being drawn
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;	//the order that triangles are created
 		rasterizer.depthBiasEnable = VK_FALSE;
 		rasterizer.depthBiasConstantFactor = 0.0f;	//optional
 		rasterizer.depthBiasClamp = 0.0f;	//optional
@@ -1364,6 +1374,9 @@ private:
 			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
 			vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+			//not unique to graphics pipelines, so we need to specify
+			vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
 			//the fourth parameter is the offset into the vertex buffer
 				//defines lowest value of Gl_VertexIndex
@@ -1710,7 +1723,7 @@ private:
 		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
 		//since glm was made for OpenGl where the Y coordinate of the clip coordinates is inverted,
 			//easiest way to compensat is to flip the sign on the scaling factor of the Y axis in the projection matrix
-		ubo.proj[1][1] != -1;
+		ubo.proj[1][1] *= -1;
 
 		void* data;
 		vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
@@ -1720,7 +1733,64 @@ private:
 
 #pragma endregion
 
-	
+	void createDescriptorPool()
+	{
+		//need to describe which descriptor types our descriptor set are going to contain and how many
+		VkDescriptorPoolSize poolSize = {};
+		poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		poolSize.descriptorCount = 1;
+
+		VkDescriptorPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &poolSize;
+		poolInfo.maxSets = 1;
+
+		if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+		{
+			THROW("failed to create descriptor pool!")
+		}
+	}
+
+	void createDescriptorSet()
+	{
+		//don't need to explicitly clean up descriptor sets,
+			//because they are freed when the descriptor pool is destroyed
+
+		//allocate the descriptor set
+		VkDescriptorSetLayout layouts[] = { descriptorSetLayout };
+		VkDescriptorSetAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = descriptorPool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = layouts;
+
+		if (vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet) != VK_SUCCESS)
+		{
+			THROW("failed to allocate descriptor set!")
+		}
+
+		//configure inner descriptors
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = uniformBuffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(UniformBufferObject);
+
+		VkWriteDescriptorSet descriptorWrite = {};
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = descriptorSet;
+		descriptorWrite.dstBinding = 0;	//binding index in shader
+		descriptorWrite.dstArrayElement = 0;	//first index in the array to update
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;	//used for descriptors with buffer data
+		descriptorWrite.pImageInfo = nullptr;	//Optional: used for descriptors using image data
+		descriptorWrite.pTexelBufferView = nullptr;	//Optional: used for descriptors using buffer views
+
+		//can take a VkWriteDescriptorSet or VkCopyDescriptorSet
+		vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+	}
+
 };
 
 //In a game with the state changin every frame the most efficient way is:
