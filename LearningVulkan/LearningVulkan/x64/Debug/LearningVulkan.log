@@ -1,4 +1,6 @@
 ﻿  TriApp.cpp
-e:\mydocuments\projects\vulkantesting\learningvulkan\learningvulkan\triapp.cpp(859): warning C4838: conversion from 'int' to 'uint32_t' requires a narrowing conversion
+e:\mydocuments\projects\vulkantesting\learningvulkan\learningvulkan\triapp.cpp(878): warning C4838: conversion from 'int' to 'uint32_t' requires a narrowing conversion
+e:\mydocuments\projects\vulkantesting\learningvulkan\learningvulkan\triapp.cpp(1711): warning C4552: '!=': operator has no effect; expected operator with side-effect
+LINK : warning LNK4098: defaultlib 'MSVCRT' conflicts with use of other libs; use /NODEFAULTLIB:library
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.exe
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Debug\LearningVulkan.pdb (Partial PDB)
