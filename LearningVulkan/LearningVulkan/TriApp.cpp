@@ -224,6 +224,9 @@ private:
 	{
 		cleanupSwapChain();
 
+		vkDestroyImage(device, textureImage, nullptr);
+		vkFreeMemory(device, textureImageMemory, nullptr);
+
 		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
@@ -1639,18 +1642,40 @@ private:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 	{
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		VkBufferCopy copyRegion = {};
+		copyRegion.srcOffset = 0;	//Optional
+		copyRegion.dstOffset = 0;	//Optional
+		copyRegion.size = size;
+		
+		//below takes an array of regions to copy(regions are made of VkBufferCopy structs)
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+		
+		endSingleTimeCommands(commandBuffer);
+	}
+
+	VkCommandBuffer beginSingleTimeCommands()
+	{
 		//Mem transfer ops are executed using command buffers, just like drawing commands
-		//So first allocate a temp command buffer
-			//we could create a separate command pool for these temporary short-lived buffers
-			//should use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag for this case
+			//So first allocate a temp command buffer
+				//we could create a separate command pool for these temporary short-lived buffers
+				//should use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag for this case
 		VkCommandBufferAllocateInfo allocInfo = {};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		allocInfo.commandPool = commandPool;
+		//level specifies if the allocate buffers are primary or secondary buffers
+			//primary can be submitted to a queue for execution. but can't be called from other command buffers
+			//secondary can't be submitted directly, but can be called from primary command buffers
+				//apparently can be used to reuse common ops from primary buffers??
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		allocInfo.commandBufferCount = 1;
 
 		VkCommandBuffer commandBuffer;
-		vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS)
+		{
+			THROW("failed to allocate single command buffer!")
+		}
 
 		//start recording the command buffer
 		VkCommandBufferBeginInfo beginInfo = {};
@@ -1659,16 +1684,13 @@ private:
 			//good practice to tell the drive about our intent using one_time_submit_bit
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-		//since we only need a single operation,
-		//we begin, submit the op, then we end recording
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-		VkBufferCopy copyRegion = {};
-		copyRegion.srcOffset = 0;	//Optional
-		copyRegion.dstOffset = 0;	//Optional
-		copyRegion.size = size;
-		//below takes an array of regions to copy(regions are made of VkBufferCopy structs)
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+		return commandBuffer;
+	}
+
+	void endSingleTimeCommands(VkCommandBuffer commandBuffer)
+	{
 		vkEndCommandBuffer(commandBuffer);
 
 		VkSubmitInfo submitInfo = {};
@@ -1828,6 +1850,20 @@ private:
 		createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+
+		transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		//image was created with VK_IMAGE_LAYOUT_UNDEFINED layout, so we use that as the old layout
+		copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+
+		//To start sampling from the texture image in the shader
+			//transition to prepare it for shader access
+		transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
 	void createImage(uint32_t width, uint32_t height, VkFormat format,
@@ -1880,9 +1916,110 @@ private:
 		vkBindImageMemory(device, image, imageMemory, 0);
 	}
 
+	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+	{
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		//common way to perform layout transitions is using an image memory barrier
+			//pipeline barrier generally used to synchronize access to resources
+			//can be used to transition image layouts and transfer queue family ownership when VK_SHARING_MODE_EXCLUSIVE is used
+		VkImageMemoryBarrier barrier = {};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		//these two specify layout transition
+			//if you don't care about the existing contents you can use VK_IMAGE_LAYOUT_UNDEFINED
+		barrier.oldLayout = oldLayout;
+		barrier.newLayout = newLayout;
+		//if using a barrier to transfer queue family ownership, then these should be the indicies of the queue families
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		//specifies the image that is affected and the specific part of the image
+		barrier.image = image;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+		barrier.srcAccessMask = 0;	//TODO
+		barrier.dstAccessMask = 0;	//TODO
+
+		VkPipelineStageFlags sourceStage;
+		VkPipelineStageFlags destinationStage;
+
+		if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+			newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+		{
+			//since we aren't waiting on anything
+				//we can have a NULL access mask
+				//earliest stage to access is the top of the pipeline
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+			newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+		{
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		else
+		{
+			throw std::invalid_argument("unsupported layout transition!");
+		}
+
+		//since barriers are synchronization primitives
+		//must specify which types of operations involing the resource happen before and after the barrier
+			//the right values depend on the old and new layout
+		vkCmdPipelineBarrier(commandBuffer,
+			sourceStage, destinationStage,
+			0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+		endSingleTimeCommands(commandBuffer);
+	}
+
+	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+	{
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		//specify which part of the buffer is going to be copied to which part of the image
+		VkBufferImageCopy region = {};
+		region.bufferOffset = 0;
+		//two below specify how the image is laid out in memory
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+		//below indicate which part of the image to copy
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+		region.imageOffset = { 0,0,0 };
+		region.imageExtent = { width, height,1 };
+
+		vkCmdCopyBufferToImage(commandBuffer, buffer, image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+		endSingleTimeCommands(commandBuffer);
+	}
+
 #pragma endregion
 
 };
+
+#pragma region Helpful Advice for Real Apps
+
+/*
+All of the helper functions that submit commands so far have been set up to execute synchronously
+by waiting for the queue to become idle. For practical applications it is recommended to combine
+these operations in a single command buffer and execute them asynchronously for higher throughput,
+especially the transitions and copy in the createTextureImage function. Try to experiment
+with this by creating a setupCommandBuffer that the helper functions record commands into,
+and add a flushSetupCommands to execute the commands that have been recorded so far.
+It's best to do this after the texture mapping works to check if the texture resources are still set up correctly.
+*/
 
 //In a game with the state changin every frame the most efficient way is:
 
@@ -1900,6 +2037,8 @@ void drawFrame() {
 }
 //This allows you to update the state of the app while the previous frame is being rendered
 */
+
+#pragma endregion
 
 int main()
 {
