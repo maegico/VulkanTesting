@@ -111,6 +111,8 @@ private:
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSet descriptorSet;
 	VkImage textureImage;
+	VkImageView textureImageView;
+	VkSampler textureSampler;
 	VkDeviceMemory textureImageMemory;
 
 	const std::vector<Vertex> vertices = {
@@ -197,6 +199,8 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createTextureImage();
+		createTextureImageView();
+		createTextureSampler();
 		createVertexBuffer();
 		createIndexBuffer();
 		createUniformBuffer();
@@ -224,6 +228,8 @@ private:
 	{
 		cleanupSwapChain();
 
+		vkDestroySampler(device, textureSampler, nullptr);
+		vkDestroyImageView(device, textureImageView, nullptr);
 		vkDestroyImage(device, textureImage, nullptr);
 		vkFreeMemory(device, textureImageMemory, nullptr);
 
@@ -566,11 +572,11 @@ private:
 		//properties are things like name, type, and supported vulkan version
 		VkPhysicalDeviceProperties deviceProperties;
 		//features are things texture compression, 64 bit floats, and multi viewport rendering(VR)
-		VkPhysicalDeviceFeatures deviceFeatures;
+		VkPhysicalDeviceFeatures supportedFeatures;
 		QueueFamilyIndices indices = findQueueFamilies(device);
 		bool extensionsSupported = checkDeviceExtensionSupport(device);
 		vkGetPhysicalDeviceProperties(device, &deviceProperties);
-		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+		vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
 		//after these you can determine which graphics card to use
 		//for now I will force it to use a dedicated GPU
@@ -583,8 +589,8 @@ private:
 			swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
 		}
 
-		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-			&& indices.isComplete() && extensionsSupported && swapChainAdequate;
+		return indices.isComplete() && extensionsSupported
+			&& swapChainAdequate && supportedFeatures.samplerAnisotropy;
 	}
 
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device)
@@ -627,6 +633,7 @@ private:
 		}
 
 		VkPhysicalDeviceFeatures deviceFeatures = {};
+		deviceFeatures.samplerAnisotropy = VK_TRUE;
 
 		VkDeviceCreateInfo createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -909,29 +916,7 @@ private:
 
 		for (size_t i = 0; i < swapChainImages.size(); i++)
 		{
-			VkImageViewCreateInfo createInfo = {};
-			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			createInfo.image = swapChainImages[i];
-			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			createInfo.format = swapChainImageFormat;
-			//createInfo.components allows use to swizzle color channels
-			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-
-			//subresourceRange describes the image's purpose and what part should be accessed
-			//if you were doing stereoscopic 3d then your swap chain would have multiple layers and have multiple image views (one for each eye)
-			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			createInfo.subresourceRange.baseMipLevel = 0;
-			createInfo.subresourceRange.levelCount = 1;
-			createInfo.subresourceRange.baseArrayLayer = 0;
-			createInfo.subresourceRange.layerCount = 1;
-
-			if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS)
-			{
-				THROW("failed to create image views!");
-			}
+			swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
 		}
 	}
 
@@ -1866,6 +1851,54 @@ private:
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
+	void createTextureImageView()
+	{
+		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_UNORM);
+	}
+
+	void createTextureSampler()
+	{
+		VkSamplerCreateInfo samplerInfo = {};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		//how to interpolate pixels that are magnified or minified
+			//magnified matters for oversampling
+			//minification matters for undersampling
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+		//addressing mode can be specified per axis using addressMode fields
+			//we currently say repeat texture when going beyond the image dimensions
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		//whether to use anisotropy or not
+			//should use unless performance is a concern
+		//maxAnisotropy field limits amount of texel samples used to calculate final color
+			//16 is close to the highest you would use
+		samplerInfo.anisotropyEnable = VK_TRUE;
+		samplerInfo.maxAnisotropy = 16;
+		//the color returned when sampling beyond image with clamp to border addressing mode
+		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+		//specifies which coordinate system to use for addressing texels in an image
+			//true makes ranges of uv coordinates: [0, texWidth) and [0, texHeight)
+			//false makes ranges of uv coordinates:[0,1)
+		samplerInfo.unnormalizedCoordinates = VK_FALSE;
+		//if a comparison function is enabled, then texels will first be compared to a value
+			//the result of that comparison is used in filtering operations
+			//mainly used for percentage-closer filtering on shadow maps
+		samplerInfo.compareEnable = VK_FALSE;
+		samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+		//All of these fields apply to mipmapping
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.mipLodBias = 0.0f;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = 0.0f;
+
+		if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS)
+		{
+			THROW("failed to create texture sampler!")
+		}
+	}
+
 	void createImage(uint32_t width, uint32_t height, VkFormat format,
 		VkImageTiling tiling, VkImageUsageFlags usage,
 		VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
@@ -2003,6 +2036,31 @@ private:
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 		endSingleTimeCommands(commandBuffer);
+	}
+
+	VkImageView createImageView(VkImage image, VkFormat format)
+	{
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = format;
+
+		//subresourceRange describes the image's purpose and what part should be accessed
+		//if you were doing stereoscopic 3d then your swap chain would have multiple layers and have multiple image views (one for each eye)
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.baseMipLevel = 0;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.subresourceRange.layerCount = 1;
+
+		VkImageView imageView;
+		if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
+		{
+			THROW("failed to create texture image view!");
+		}
+
+		return imageView;
 	}
 
 #pragma endregion
