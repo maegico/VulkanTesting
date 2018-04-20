@@ -1,8 +1,8 @@
 ﻿  TriApp.cpp
   Generating code
-  327 of 3562 functions ( 9.2%) were compiled, the rest were copied from previous compilation.
-    296 functions were new in current compilation
-    172 functions had inline decision re-evaluated but remain unchanged
+  29 of 3565 functions ( 0.8%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    10 functions had inline decision re-evaluated but remain unchanged
   Finished generating code
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Release\LearningVulkan.exe
   LearningVulkan.vcxproj -> E:\MyDocuments\Projects\VulkanTesting\LearningVulkan\x64\Release\LearningVulkan.pdb (Full PDB)
