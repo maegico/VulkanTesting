@@ -1,0 +1,1 @@
+for /r %%i in (*) do C:\VulkanSDK\1.1.70.1\Bin\glslangValidator.exe -V %%i
